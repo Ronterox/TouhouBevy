@@ -23,16 +23,6 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ..default()
     };
     commands.spawn((player, player_sprite));
-
-    // for i in 0..10 {
-    //     let bullet = Bullet { speed: 5. };
-    //     let bullet_sprite = SpriteBundle {
-    //         texture: asset_server.load("isaac.png"),
-    //         transform: Transform::from_xyz(0., 200. * i as f32, 0.).with_scale(Vec3::splat(0.2)),
-    //         ..default()
-    //     };
-    //     commands.spawn((bullet, bullet_sprite));
-    // }
 }
 
 fn move_by(transform: &mut Mut<Transform>, dir: (f32, f32), speed: f32) {
