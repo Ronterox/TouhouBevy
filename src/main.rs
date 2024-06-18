@@ -1,6 +1,6 @@
 use bevy::{app::AppExit, prelude::*};
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 struct Player {
     speed: f32,
 }
@@ -22,7 +22,20 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(0.2)),
         ..default()
     };
+
+    let mut bullets = Vec::new();
+    for _ in 0..5 {
+        let bullet = Bullet { speed: 5. };
+        let bullet_sprite = SpriteBundle {
+            texture: asset_server.load("isaac.png"),
+            transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(0.1)),
+            visibility: Visibility::Hidden,
+            ..default()
+        };
+        bullets.push((bullet, bullet_sprite, player));
+    }
     commands.spawn((player, player_sprite));
+    commands.spawn_batch(bullets);
 }
 
 fn move_by(transform: &mut Mut<Transform>, dir: (f32, f32), speed: f32) {
@@ -31,18 +44,20 @@ fn move_by(transform: &mut Mut<Transform>, dir: (f32, f32), speed: f32) {
 }
 
 fn update_player(
-    mut query: Query<(&Player, &mut Transform)>,
+    mut query_player: Query<(&Player, &mut Transform), Without<Bullet>>,
+    mut query_bullets: Query<
+        (&mut Transform, &ViewVisibility, &mut Visibility),
+        (With<Player>, With<Bullet>),
+    >,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
-    asset_server: Res<AssetServer>,
     mut timer: ResMut<BulletTimer>,
-    mut commands: Commands,
 ) {
-    let (player, mut transform) = query.single_mut();
+    let (player, mut player_transform) = query_player.single_mut();
 
     let mut if_press_move = |key: KeyCode, dir: (f32, f32)| {
         if keys.pressed(key) {
-            move_by(&mut transform, dir, player.speed);
+            move_by(&mut player_transform, dir, player.speed);
         }
     };
 
@@ -52,19 +67,21 @@ fn update_player(
     if_press_move(KeyCode::KeyD, (1., 0.));
 
     if timer.0.tick(time.delta()).just_finished() {
-        let bullet = Bullet { speed: 5. };
-        let bullet_sprite = SpriteBundle {
-            texture: asset_server.load("isaac.png"),
-            transform: transform.clone().with_scale(Vec3::splat(0.1)),
-            ..default()
-        };
-        commands.spawn((bullet, bullet_sprite));
+        for (mut transform, view_visibility, mut visibility) in &mut query_bullets {
+            if !view_visibility.get() {
+                transform.translation = player_transform.translation.clone();
+                *visibility = Visibility::Visible;
+                break;
+            }
+        }
     }
 }
 
-fn update_bullets(mut query: Query<(&Bullet, &mut Transform)>) {
-    for (bullet, mut transform) in &mut query {
-        transform.translation.y += bullet.speed;
+fn update_bullets(mut query: Query<(&Bullet, &mut Transform, &ViewVisibility)>) {
+    for (bullet, mut transform, visibility) in &mut query {
+        if visibility.get() {
+            transform.translation.y += bullet.speed;
+        }
     }
 }
 
