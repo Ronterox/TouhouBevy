@@ -6,6 +6,9 @@ struct Player {
 }
 
 #[derive(Component)]
+struct Enemy {}
+
+#[derive(Component)]
 struct Bullet {
     speed: f32,
 }
@@ -16,26 +19,32 @@ struct BulletTimer(Timer);
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
 
-    let player = Player { speed: 5. };
+    let player = Player { speed: 10. };
     let player_sprite = SpriteBundle {
         texture: asset_server.load("sakuya.png"),
-        transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(0.2)),
+        transform: Transform::from_xyz(0., -200., 0.).with_scale(Vec3::splat(0.2)),
         ..default()
     };
+    commands.spawn((player, player_sprite));
 
-    let mut bullets = Vec::new();
+    let enemy = Enemy {};
+    let enemy_sprite = SpriteBundle {
+        texture: asset_server.load("sakuya.png"),
+        transform: Transform::from_xyz(0., 200., 0.).with_scale(Vec3::splat(0.15)),
+        ..default()
+    };
+    commands.spawn((enemy, enemy_sprite));
+
     for _ in 0..5 {
-        let bullet = Bullet { speed: 5. };
+        let bullet = Bullet { speed: 20. };
         let bullet_sprite = SpriteBundle {
             texture: asset_server.load("isaac.png"),
             transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(0.1)),
             visibility: Visibility::Hidden,
             ..default()
         };
-        bullets.push((bullet, bullet_sprite, player));
+        commands.spawn((bullet, bullet_sprite, player));
     }
-    commands.spawn((player, player_sprite));
-    commands.spawn_batch(bullets);
 }
 
 fn move_by(transform: &mut Mut<Transform>, dir: (f32, f32), speed: f32) {
@@ -67,13 +76,13 @@ fn update_player(
     if_press_move(KeyCode::KeyD, (1., 0.));
 
     if timer.0.tick(time.delta()).just_finished() {
-        for (mut transform, view_visibility, mut visibility) in &mut query_bullets {
-            if !view_visibility.get() {
+        query_bullets
+            .iter_mut()
+            .find(|(_, is_visible, _)| !is_visible.get())
+            .map(|(mut transform, _, mut visibility)| {
                 transform.translation = player_transform.translation.clone();
                 *visibility = Visibility::Visible;
-                break;
-            }
-        }
+            });
     }
 }
 
@@ -91,11 +100,24 @@ fn escape_game(mut exit: EventWriter<AppExit>, keys: Res<ButtonInput<KeyCode>>) 
     }
 }
 
+fn change_colors(
+    mut enemies: Query<&mut Sprite, With<Enemy>>,
+    mut bullets: Query<&mut Sprite, (With<Bullet>, Without<Enemy>)>,
+) {
+    enemies.iter_mut().for_each(|mut sprite| {
+        sprite.color = Color::BLACK;
+    });
+    bullets.iter_mut().for_each(|mut sprite| {
+        sprite.color = Color::RED;
+    });
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(BulletTimer(Timer::from_seconds(0.5, TimerMode::Repeating)))
+        .insert_resource(BulletTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
         .add_systems(Startup, startup)
+        .add_systems(PostStartup, change_colors)
         .add_systems(Update, (update_player, escape_game, update_bullets))
         .run();
 }
