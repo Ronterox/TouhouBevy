@@ -108,12 +108,12 @@ fn change_colors(
     mut enemies: Query<&mut Sprite, With<Enemy>>,
     mut bullets: Query<&mut Sprite, (With<Bullet>, Without<Enemy>)>,
 ) {
-    enemies.iter_mut().for_each(|mut sprite| {
-        sprite.color = Color::BLACK;
-    });
-    bullets.iter_mut().for_each(|mut sprite| {
-        sprite.color = Color::RED;
-    });
+    enemies
+        .iter_mut()
+        .for_each(|mut sprite| sprite.color = Color::BLACK);
+    bullets
+        .iter_mut()
+        .for_each(|mut sprite| sprite.color = Color::RED);
 }
 
 fn main() {
