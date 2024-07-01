@@ -45,6 +45,41 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         };
         commands.spawn((bullet, bullet_sprite, player));
     }
+
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(80.),
+                height: Val::Percent(80.),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                margin: UiRect::all(Val::Auto),
+                ..default()
+            },
+            background_color: Color::WHITE.into(),
+            ..default()
+        })
+        .with_children(|panel| {
+            panel
+                .spawn(ButtonBundle {
+                    background_color: Color::BLACK.into(),
+                    style: Style {
+                        padding: UiRect::all(Val::Px(10.)),
+                        ..default()
+                    },
+                    ..default()
+                })
+                .with_children(|button| {
+                    button.spawn(TextBundle::from_section(
+                        "Increment Speed",
+                        TextStyle {
+                            font_size: 40.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ));
+                });
+        });
 }
 
 fn move_by(transform: &mut Mut<Transform>, dir: (f32, f32), speed: f32) {
@@ -116,13 +151,33 @@ fn change_colors(
         .for_each(|mut sprite| sprite.color = Color::RED);
 }
 
+fn hide_ui(mut query: Query<&mut Visibility, With<Node>>) {
+    for mut visibility in &mut query {
+        *visibility = Visibility::Hidden;
+    }
+}
+
+fn toggle_ui(
+    mut query: Query<(&mut Visibility, &mut ViewVisibility), With<Node>>,
+    keys: Res<ButtonInput<KeyCode>>,
+) {
+    if keys.just_pressed(KeyCode::Space) {
+        for (mut visibility, view_visibility) in &mut query {
+            *visibility = match view_visibility.get() {
+                true => Visibility::Hidden,
+                false => Visibility::Visible,
+            };
+        }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(BulletTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
         .add_systems(Startup, startup)
-        .add_systems(PostStartup, change_colors)
-        .add_systems(PreUpdate, (update_player_position, escape_game))
+        .add_systems(PostStartup, (change_colors, hide_ui))
+        .add_systems(PreUpdate, (update_player_position, escape_game, toggle_ui))
         .add_systems(Update, (update_bullet_shot, update_bullets))
         .run();
 }
