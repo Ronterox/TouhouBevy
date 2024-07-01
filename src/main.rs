@@ -52,15 +52,9 @@ fn move_by(transform: &mut Mut<Transform>, dir: (f32, f32), speed: f32) {
     transform.translation.y += dir.1 * speed;
 }
 
-fn update_player(
+fn update_player_position(
     mut query_player: Query<(&Player, &mut Transform), Without<Bullet>>,
-    mut query_bullets: Query<
-        (&mut Transform, &ViewVisibility, &mut Visibility),
-        (With<Player>, With<Bullet>),
-    >,
     keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut timer: ResMut<BulletTimer>,
 ) {
     let (player, mut player_transform) = query_player.single_mut();
 
@@ -74,13 +68,23 @@ fn update_player(
     if_press_move(KeyCode::KeyA, (-1., 0.));
     if_press_move(KeyCode::KeyS, (0., -1.));
     if_press_move(KeyCode::KeyD, (1., 0.));
+}
 
+fn update_bullet_shot(
+    mut query_player: Query<&mut Transform, (With<Player>, Without<Bullet>)>,
+    mut query_bullets: Query<
+        (&mut Transform, &ViewVisibility, &mut Visibility),
+        (With<Player>, With<Bullet>),
+    >,
+    time: Res<Time>,
+    mut timer: ResMut<BulletTimer>,
+) {
     if timer.0.tick(time.delta()).just_finished() {
         query_bullets
             .iter_mut()
             .find(|(_, is_visible, _)| !is_visible.get())
             .map(|(mut transform, _, mut visibility)| {
-                transform.translation = player_transform.translation.clone();
+                transform.translation = query_player.single_mut().translation.clone();
                 *visibility = Visibility::Visible;
             });
     }
@@ -118,6 +122,7 @@ fn main() {
         .insert_resource(BulletTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
         .add_systems(Startup, startup)
         .add_systems(PostStartup, change_colors)
-        .add_systems(Update, (update_player, escape_game, update_bullets))
+        .add_systems(PreUpdate, (update_player_position, escape_game))
+        .add_systems(Update, (update_bullet_shot, update_bullets))
         .run();
 }
