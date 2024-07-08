@@ -8,7 +8,6 @@ struct Player {
 #[derive(Component)]
 struct Enemy {
     velocities: Vec<f32>,
-    vel_index: usize,
     speed: f32,
 }
 
@@ -18,7 +17,7 @@ struct Bullet {
 }
 
 #[derive(Resource)]
-struct BulletTimer(Timer);
+struct ShotTimer(Timer);
 
 #[derive(Resource)]
 struct EnemyTimer(Timer);
@@ -37,7 +36,6 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let enemy = Enemy {
         velocities: vec![-1., 0., 1., 0., 1., 0., -1., 0.],
         speed: 5.,
-        vel_index: 0,
     };
     let enemy_sprite = SpriteBundle {
         texture: asset_server.load("sakuya.png"),
@@ -87,7 +85,7 @@ fn update_bullet_shot(
         (&mut Transform, &ViewVisibility, &mut Visibility),
         (With<Player>, With<Bullet>),
     >,
-    mut timer: ResMut<BulletTimer>,
+    mut timer: ResMut<ShotTimer>,
     time: Res<Time>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
@@ -116,9 +114,10 @@ fn update_enemy_position(
 ) {
     for (mut enemy, mut transform) in &mut query {
         if timer.0.tick(time.delta()).just_finished() {
-            enemy.vel_index = (enemy.vel_index + 1) % enemy.velocities.len();
+            enemy.velocities.rotate_left(1);
         }
-        transform.translation.x += enemy.velocities[enemy.vel_index] * enemy.speed;
+        let vel = enemy.velocities.first().unwrap_or(&0.);
+        transform.translation.x += vel * enemy.speed;
     }
 }
 
@@ -143,7 +142,7 @@ fn change_colors(
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(BulletTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
+        .insert_resource(ShotTimer(Timer::from_seconds(0.1, TimerMode::Repeating)))
         .insert_resource(EnemyTimer(Timer::from_seconds(1.5, TimerMode::Repeating)))
         .add_systems(Startup, startup)
         .add_systems(PostStartup, change_colors)
