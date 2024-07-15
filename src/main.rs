@@ -65,7 +65,7 @@ impl Default for Enemy {
                 speed: 5.,
                 shot_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
                 move_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
-                health: 100,
+                health: 200,
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 200., 0.).with_scale(Vec3::splat(0.2)),
@@ -124,7 +124,9 @@ fn startup(
     for _ in 0..5 {
         let mut bullet = Bullet::default();
         bullet.sprite.texture = asset_server.load("isaac.png");
+        bullet.sprite.transform = Transform::from_scale(Vec3::splat(0.1));
         bullet.data.velocity = Vec2::from_array([0., -1.]);
+        bullet.data.speed = 2.0;
         commands.spawn((bullet, EnemyTag));
     }
 }
@@ -262,7 +264,7 @@ fn update_hits(
         .iter()
         .filter(|(_, visibility)| *visibility == Visibility::Visible)
         .for_each(|(bullet, _)| {
-            if bullet.translation.distance(player.translation) < 50. {
+            if bullet.translation.distance(player.translation) < 25. {
                 // TODO: Implement
                 todo!("Player died, use size of bullet");
             }
@@ -276,7 +278,7 @@ fn update_hits(
                 enemy_data.health -= 1;
                 if enemy_data.health == 0 {
                     // TODO: Implement
-                    todo!("Enemy died");
+                    todo!("Enemy died, You won!");
                 }
 
                 if enemy_data.health % 5 == 0 {
