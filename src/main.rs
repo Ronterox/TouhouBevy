@@ -1,4 +1,4 @@
-use bevy::{app::AppExit, prelude::*};
+use bevy::{app::AppExit, core::Zeroable, prelude::*};
 
 #[derive(Component)]
 struct PlayerData {
@@ -10,14 +10,21 @@ struct PlayerData {
 struct EnemyData {
     velocities: Vec<f32>,
     speed: f32,
-    // shot_timer: Timer,
+    shot_timer: Timer,
     move_timer: Timer,
 }
 
 #[derive(Component)]
 struct BulletData {
     speed: f32,
+    velocity: Vec2,
 }
+
+#[derive(Component)]
+struct PlayerTag;
+
+#[derive(Component)]
+struct EnemyTag;
 
 #[derive(Bundle)]
 struct BodyData<T: Component> {
@@ -50,7 +57,7 @@ impl Default for Enemy {
             data: EnemyData {
                 velocities: vec![-1., 0., 1., 0., 1., 0., -1., 0.],
                 speed: 5.,
-                // shot_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+                shot_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
                 move_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
             },
             sprite: SpriteBundle {
@@ -64,7 +71,10 @@ impl Default for Enemy {
 impl Default for Bullet {
     fn default() -> Self {
         Self {
-            data: BulletData { speed: 20. },
+            data: BulletData {
+                speed: 20.,
+                velocity: Vec2::zeroed(),
+            },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(0.05)),
                 visibility: Visibility::Hidden,
@@ -84,12 +94,20 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     for _ in 0..5 {
         let mut bullet = Bullet::default();
         bullet.sprite.texture = asset_server.load("isaac.png");
-        commands.spawn(bullet);
+        bullet.data.velocity = Vec2::from_array([0., 1.]);
+        commands.spawn((bullet, PlayerTag));
     }
 
     let mut enemy = Enemy::default();
     enemy.sprite.texture = asset_server.load("sakuya.png");
     commands.spawn(enemy);
+
+    for _ in 0..5 {
+        let mut bullet = Bullet::default();
+        bullet.sprite.texture = asset_server.load("isaac.png");
+        bullet.data.velocity = Vec2::from_array([0., -1.]);
+        commands.spawn((bullet, EnemyTag));
+    }
 }
 
 fn move_by(transform: &mut Transform, dir: (f32, f32), speed: f32) {
@@ -116,18 +134,38 @@ fn update_player_position(
 }
 
 fn update_bullet_spawn(
-    mut query_bullets: Query<(&mut Transform, &ViewVisibility, &mut Visibility), With<BulletData>>,
+    mut query_bullets_player: Query<
+        (&mut Transform, &ViewVisibility, &mut Visibility),
+        (With<BulletData>, With<PlayerTag>, Without<EnemyTag>),
+    >,
+    mut query_bullets_enemy: Query<
+        (&mut Transform, &ViewVisibility, &mut Visibility),
+        (With<BulletData>, With<EnemyTag>, Without<PlayerTag>),
+    >,
     mut query_player: Query<(&Transform, &mut PlayerData), Without<BulletData>>,
+    mut query_enemy: Query<(&Transform, &mut EnemyData), Without<BulletData>>,
     time: Res<Time>,
 ) {
     let (player_transform, mut player) = query_player.single_mut();
 
     if player.shot_timer.tick(time.delta()).just_finished() {
-        query_bullets
+        query_bullets_player
             .iter_mut()
             .find(|(_, is_visible, _)| !is_visible.get())
             .map(|(mut transform, _, mut visibility)| {
                 transform.translation = player_transform.translation;
+                *visibility = Visibility::Visible;
+            });
+    }
+
+    let (enemy_transform, mut enemy) = query_enemy.single_mut();
+
+    if enemy.shot_timer.tick(time.delta()).just_finished() {
+        query_bullets_enemy
+            .iter_mut()
+            .find(|(_, is_visible, _)| !is_visible.get())
+            .map(|(mut transform, _, mut visibility)| {
+                transform.translation = enemy_transform.translation;
                 *visibility = Visibility::Visible;
             });
     }
@@ -138,7 +176,8 @@ fn update_bullets_position(
 ) {
     for (bullet, mut transform, visibility) in &mut query {
         if visibility.get() {
-            transform.translation.y += bullet.speed;
+            transform.translation.x += bullet.speed * bullet.velocity.x;
+            transform.translation.y += bullet.speed * bullet.velocity.y;
         }
     }
 }
