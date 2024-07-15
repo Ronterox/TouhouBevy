@@ -1,4 +1,9 @@
-use bevy::{app::AppExit, core::Zeroable, prelude::*};
+use bevy::{
+    app::AppExit,
+    core::Zeroable,
+    prelude::*,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
+};
 
 #[derive(Component)]
 struct PlayerData {
@@ -12,6 +17,7 @@ struct EnemyData {
     speed: f32,
     shot_timer: Timer,
     move_timer: Timer,
+    health: u32,
 }
 
 #[derive(Component)]
@@ -59,6 +65,7 @@ impl Default for Enemy {
                 speed: 5.,
                 shot_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
                 move_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
+                health: 100,
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 200., 0.).with_scale(Vec3::splat(0.2)),
@@ -84,8 +91,20 @@ impl Default for Bullet {
     }
 }
 
-fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn startup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
     commands.spawn(Camera2dBundle::default());
+
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: Mesh2dHandle(meshes.add(Circle { radius: 10. })),
+        material: materials.add(Color::rgba(1., 0., 0., 0.5)),
+        transform: Transform::from_xyz(0., 0., 0.),
+        ..default()
+    });
 
     let mut player = Player::default();
     player.sprite.texture = asset_server.load("sakuya.png");
@@ -171,9 +190,7 @@ fn update_bullet_spawn(
     }
 }
 
-fn update_bullets_position(
-    mut query: Query<(&BulletData, &mut Transform, &ViewVisibility)>,
-) {
+fn update_bullets_position(mut query: Query<(&BulletData, &mut Transform, &ViewVisibility)>) {
     for (bullet, mut transform, visibility) in &mut query {
         if visibility.get() {
             transform.translation.x += bullet.speed * bullet.velocity.x;
@@ -214,6 +231,63 @@ fn change_colors(
         .for_each(|mut sprite| sprite.color = Color::RED);
 }
 
+fn update_hits(
+    query_player: Query<&Transform, (With<PlayerData>, Without<EnemyData>)>,
+    mut query_enemy: Query<(&Transform, &mut EnemyData), Without<BulletData>>,
+    mut query_hitbox: Query<
+        &mut Transform,
+        (
+            With<Mesh2dHandle>,
+            Without<PlayerData>,
+            Without<EnemyData>,
+            Without<BulletData>,
+        ),
+    >,
+    query_enemy_bullets: Query<
+        (&Transform, &Visibility),
+        (With<BulletData>, (With<EnemyTag>, Without<PlayerTag>)),
+    >,
+    mut query_player_bullets: Query<
+        (&Transform, &mut Visibility),
+        (With<BulletData>, (With<PlayerTag>, Without<EnemyTag>)),
+    >,
+) {
+    let player = query_player.single();
+    let (enemy, mut enemy_data) = query_enemy.single_mut();
+
+    // TODO: This should update on player move, use on changed system
+    query_hitbox.single_mut().translation = player.translation;
+
+    query_enemy_bullets
+        .iter()
+        .filter(|(_, visibility)| *visibility == Visibility::Visible)
+        .for_each(|(bullet, _)| {
+            if bullet.translation.distance(player.translation) < 50. {
+                // TODO: Implement
+                todo!("Player died, use size of bullet");
+            }
+        });
+
+    query_player_bullets
+        .iter_mut()
+        .filter(|(_, visibility)| **visibility == Visibility::Visible)
+        .for_each(|(bullet, mut visibility)| {
+            if bullet.translation.distance(enemy.translation) < 100. {
+                enemy_data.health -= 1;
+                if enemy_data.health == 0 {
+                    // TODO: Implement
+                    todo!("Enemy died");
+                }
+
+                if enemy_data.health % 5 == 0 {
+                    println!("Enemy health: {}", enemy_data.health);
+                }
+
+                *visibility = Visibility::Hidden;
+            }
+        });
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -228,5 +302,6 @@ fn main() {
                 update_enemy_position,
             ),
         )
+        .add_systems(PostUpdate, update_hits)
         .run();
 }
