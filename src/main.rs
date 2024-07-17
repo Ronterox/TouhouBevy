@@ -1,6 +1,5 @@
 use bevy::{
     app::AppExit,
-    core::Zeroable,
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
@@ -20,10 +19,10 @@ struct EnemyData {
     health: u32,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct BulletData {
     speed: f32,
-    velocity: Vec2,
+    direction: Vec2,
 }
 
 #[derive(Component)]
@@ -32,7 +31,7 @@ struct PlayerTag;
 #[derive(Component)]
 struct EnemyTag;
 
-#[derive(Bundle)]
+#[derive(Bundle, Clone)]
 struct BodyData<T: Component> {
     data: T,
     sprite: SpriteBundle,
@@ -42,8 +41,27 @@ type Player = BodyData<PlayerData>;
 type Enemy = BodyData<EnemyData>;
 type Bullet = BodyData<BulletData>;
 
-impl Default for Player {
-    fn default() -> Self {
+trait Shooter {
+    fn get_timer(&mut self) -> &mut Timer;
+    fn can_shoot(&mut self, delta: std::time::Duration) -> bool {
+        self.get_timer().tick(delta).just_finished()
+    }
+}
+
+impl Shooter for PlayerData {
+    fn get_timer(&mut self) -> &mut Timer {
+        &mut self.shot_timer
+    }
+}
+
+impl Shooter for EnemyData {
+    fn get_timer(&mut self) -> &mut Timer {
+        &mut self.shot_timer
+    }
+}
+
+impl Player {
+    fn new(texture: &Handle<Image>) -> Self {
         Self {
             data: PlayerData {
                 speed: 10.0,
@@ -51,14 +69,15 @@ impl Default for Player {
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., -200., 0.).with_scale(Vec3::splat(0.12)),
+                texture: texture.clone(),
                 ..default()
             },
         }
     }
 }
 
-impl Default for Enemy {
-    fn default() -> Self {
+impl Enemy {
+    fn new(texture: &Handle<Image>) -> Self {
         Self {
             data: EnemyData {
                 velocities: vec![-1., 0., 1., 0., 1., 0., -1., 0.],
@@ -69,22 +88,24 @@ impl Default for Enemy {
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 200., 0.).with_scale(Vec3::splat(0.2)),
+                texture: texture.clone(),
                 ..default()
             },
         }
     }
 }
 
-impl Default for Bullet {
-    fn default() -> Self {
+impl Bullet {
+    fn new(texture: &Handle<Image>, direction: [f32; 2], speed: f32, size_percentage: f32) -> Self {
         Self {
             data: BulletData {
-                speed: 20.,
-                velocity: Vec2::zeroed(),
+                speed,
+                direction: Vec2::from_array(direction)
             },
             sprite: SpriteBundle {
-                transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(0.05)),
+                transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(size_percentage)),
                 visibility: Visibility::Hidden,
+                texture: texture.clone(),
                 ..default()
             },
         }
@@ -99,6 +120,10 @@ fn startup(
 ) {
     commands.spawn(Camera2dBundle::default());
 
+    let sakuya_texture = asset_server.load("sakuya.png");
+    commands.spawn(Player::new(&sakuya_texture));
+    commands.spawn(Enemy::new(&sakuya_texture));
+
     commands.spawn(MaterialMesh2dBundle {
         mesh: Mesh2dHandle(meshes.add(Circle { radius: 10. })),
         material: materials.add(Color::rgba(1., 0., 0., 0.5)),
@@ -106,29 +131,13 @@ fn startup(
         ..default()
     });
 
-    let mut player = Player::default();
-    player.sprite.texture = asset_server.load("sakuya.png");
-    commands.spawn(player);
+    let bullet_texture = asset_server.load("isaac.png");
 
-    for _ in 0..5 {
-        let mut bullet = Bullet::default();
-        bullet.sprite.texture = asset_server.load("isaac.png");
-        bullet.data.velocity = Vec2::from_array([0., 1.]);
-        commands.spawn((bullet, PlayerTag));
-    }
+    let bullet = Bullet::new(&bullet_texture, [0., 1.], 20., 0.05);
+    (0..5).for_each(|_| { commands.spawn((bullet.clone(), PlayerTag)); });
 
-    let mut enemy = Enemy::default();
-    enemy.sprite.texture = asset_server.load("sakuya.png");
-    commands.spawn(enemy);
-
-    for _ in 0..5 {
-        let mut bullet = Bullet::default();
-        bullet.sprite.texture = asset_server.load("isaac.png");
-        bullet.sprite.transform = Transform::from_scale(Vec3::splat(0.1));
-        bullet.data.velocity = Vec2::from_array([0., -1.]);
-        bullet.data.speed = 2.0;
-        commands.spawn((bullet, EnemyTag));
-    }
+    let bullet = Bullet::new(&bullet_texture, [0., -1.], 2., 0.1);
+    (0..5).for_each(|_| { commands.spawn((bullet.clone(), EnemyTag)); });
 }
 
 fn move_by(transform: &mut Transform, dir: (f32, f32), speed: f32) {
@@ -154,6 +163,26 @@ fn update_player_position(
     if_press_move(KeyCode::KeyD, (1., 0.));
 }
 
+fn spawn_bullet<T: Shooter, K: Component, J: Component>(
+    shooter: &mut Mut<T>,
+    shooter_transform: &Transform,
+    delta: std::time::Duration,
+    bullets: &mut Query<
+        (&mut Transform, &ViewVisibility, &mut Visibility),
+        (With<BulletData>, With<K>, Without<J>),
+    >,
+) {
+    if shooter.can_shoot(delta) {
+        bullets
+            .iter_mut()
+            .find(|(_, is_visible, _)| !is_visible.get())
+            .map(|(mut transform, _, mut visibility)| {
+                transform.translation = shooter_transform.translation;
+                *visibility = Visibility::Visible;
+            });
+    }
+}
+
 fn update_bullet_spawn(
     mut query_bullets_player: Query<
         (&mut Transform, &ViewVisibility, &mut Visibility),
@@ -168,35 +197,28 @@ fn update_bullet_spawn(
     time: Res<Time>,
 ) {
     let (player_transform, mut player) = query_player.single_mut();
-
-    if player.shot_timer.tick(time.delta()).just_finished() {
-        query_bullets_player
-            .iter_mut()
-            .find(|(_, is_visible, _)| !is_visible.get())
-            .map(|(mut transform, _, mut visibility)| {
-                transform.translation = player_transform.translation;
-                *visibility = Visibility::Visible;
-            });
-    }
-
     let (enemy_transform, mut enemy) = query_enemy.single_mut();
 
-    if enemy.shot_timer.tick(time.delta()).just_finished() {
-        query_bullets_enemy
-            .iter_mut()
-            .find(|(_, is_visible, _)| !is_visible.get())
-            .map(|(mut transform, _, mut visibility)| {
-                transform.translation = enemy_transform.translation;
-                *visibility = Visibility::Visible;
-            });
-    }
+    spawn_bullet(
+        &mut player,
+        player_transform,
+        time.delta(),
+        &mut query_bullets_player,
+    );
+
+    spawn_bullet(
+        &mut enemy,
+        enemy_transform,
+        time.delta(),
+        &mut query_bullets_enemy,
+    );
 }
 
 fn update_bullets_position(mut query: Query<(&BulletData, &mut Transform, &ViewVisibility)>) {
     for (bullet, mut transform, visibility) in &mut query {
         if visibility.get() {
-            transform.translation.x += bullet.speed * bullet.velocity.x;
-            transform.translation.y += bullet.speed * bullet.velocity.y;
+            transform.translation.x += bullet.speed * bullet.direction.x;
+            transform.translation.y += bullet.speed * bullet.direction.y;
         }
     }
 }
