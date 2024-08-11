@@ -25,10 +25,10 @@ struct BulletData {
     direction: Vec2,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct PlayerTag;
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct EnemyTag;
 
 #[derive(Bundle, Clone)]
@@ -100,7 +100,7 @@ impl Bullet {
         Self {
             data: BulletData {
                 speed,
-                direction: Vec2::from_array(direction)
+                direction: Vec2::from_array(direction),
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(size_percentage)),
@@ -132,12 +132,11 @@ fn startup(
     });
 
     let bullet_texture = asset_server.load("isaac.png");
-
     let bullet = Bullet::new(&bullet_texture, [0., 1.], 20., 0.05);
-    (0..5).for_each(|_| { commands.spawn((bullet.clone(), PlayerTag)); });
+    commands.spawn_batch(std::iter::repeat((bullet, PlayerTag)).take(5));
 
     let bullet = Bullet::new(&bullet_texture, [0., -1.], 2., 0.1);
-    (0..5).for_each(|_| { commands.spawn((bullet.clone(), EnemyTag)); });
+    commands.spawn_batch(std::iter::repeat((bullet, EnemyTag)).take(5));
 }
 
 fn move_by(transform: &mut Transform, dir: (f32, f32), speed: f32) {
