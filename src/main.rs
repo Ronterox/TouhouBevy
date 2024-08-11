@@ -7,29 +7,31 @@ use bevy::{
 #[derive(Component)]
 struct PlayerData {
     speed: f32,
-    shot_timer: Timer,
 }
 
 #[derive(Component, Clone)]
 struct EnemyData {
-    velocities: Vec<f32>,
     speed: f32,
-    shot_timer: Timer,
+    directions: Vec<f32>,
     move_timer: Timer,
-    health: u32,
 }
 
 #[derive(Component, Clone)]
 struct BulletData {
+    tag: Tag,
+    direction: Vec3,
     speed: f32,
-    direction: Vec2,
+    damage: u32,
 }
 
 #[derive(Component, Clone)]
-struct PlayerTag;
+struct Gunner {
+    tag: Tag,
+    shot_timer: Timer,
+}
 
 #[derive(Component, Clone)]
-struct EnemyTag;
+struct ChangeColor(Color);
 
 #[derive(Bundle, Clone)]
 struct BodyData<T: Component> {
@@ -37,36 +39,35 @@ struct BodyData<T: Component> {
     sprite: SpriteBundle,
 }
 
+#[derive(Component)]
+struct HealthBar {
+    tag: Tag,
+    health: u32,
+    on_death: fn(),
+    on_hit: fn(health: u32),
+    hitbox_size: f32,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum Tag {
+    Player,
+    Enemy,
+}
+
 type Player = BodyData<PlayerData>;
 type Enemy = BodyData<EnemyData>;
 type Bullet = BodyData<BulletData>;
 
-trait Shooter {
-    fn get_timer(&mut self) -> &mut Timer;
+impl Gunner {
     fn can_shoot(&mut self, delta: std::time::Duration) -> bool {
-        self.get_timer().tick(delta).just_finished()
-    }
-}
-
-impl Shooter for PlayerData {
-    fn get_timer(&mut self) -> &mut Timer {
-        &mut self.shot_timer
-    }
-}
-
-impl Shooter for EnemyData {
-    fn get_timer(&mut self) -> &mut Timer {
-        &mut self.shot_timer
+        self.shot_timer.tick(delta).just_finished()
     }
 }
 
 impl Player {
     fn new(texture: &Handle<Image>) -> Self {
         Self {
-            data: PlayerData {
-                speed: 10.0,
-                shot_timer: Timer::from_seconds(0.1, TimerMode::Repeating),
-            },
+            data: PlayerData { speed: 10.0 },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., -200., 0.).with_scale(Vec3::splat(0.12)),
                 texture: texture.clone(),
@@ -80,11 +81,9 @@ impl Enemy {
     fn new(texture: &Handle<Image>) -> Self {
         Self {
             data: EnemyData {
-                velocities: vec![-1., 0., 1., 0., 1., 0., -1., 0.],
                 speed: 5.,
-                shot_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+                directions: vec![-1., 0., 1., 0., 1., 0., -1., 0.],
                 move_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
-                health: 200,
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 200., 0.).with_scale(Vec3::splat(0.2)),
@@ -96,11 +95,19 @@ impl Enemy {
 }
 
 impl Bullet {
-    fn new(texture: &Handle<Image>, direction: [f32; 2], speed: f32, size_percentage: f32) -> Self {
+    fn new(
+        tag: Tag,
+        texture: &Handle<Image>,
+        direction: Vec3,
+        speed: f32,
+        size_percentage: f32,
+    ) -> Self {
         Self {
             data: BulletData {
+                tag,
                 speed,
-                direction: Vec2::from_array(direction),
+                direction,
+                damage: 1,
             },
             sprite: SpriteBundle {
                 transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(size_percentage)),
@@ -112,6 +119,15 @@ impl Bullet {
     }
 }
 
+const BULLET_IMG_PATH: &str = "isaac.png";
+const PLAYER_IMG_PATH: &str = "sakuya.png";
+const ENEMY_IMG_PATH: &str = "sakuya.png";
+
+const DIR_UP: Vec3 = Vec3::new(0., 1., 0.);
+const DIR_DOWN: Vec3 = Vec3::new(0., -1., 0.);
+const DIR_LEFT: Vec3 = Vec3::new(-1., 0., 0.);
+const DIR_RIGHT: Vec3 = Vec3::new(1., 0., 0.);
+
 fn startup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -120,118 +136,119 @@ fn startup(
 ) {
     commands.spawn(Camera2dBundle::default());
 
-    let sakuya_texture = asset_server.load("sakuya.png");
-    commands.spawn(Player::new(&sakuya_texture));
-    commands.spawn(Enemy::new(&sakuya_texture));
+    commands.spawn((
+        Player::new(&asset_server.load(PLAYER_IMG_PATH)),
+        Gunner {
+            tag: Tag::Player,
+            shot_timer: Timer::from_seconds(0.1, TimerMode::Repeating),
+        },
+        HealthBar {
+            tag: Tag::Player,
+            health: 1,
+            on_death: || todo!("Player died, you lose!"),
+            on_hit: |health| println!("Player health: {}", health),
+            hitbox_size: 25.,
+        },
+    ));
+
+    commands.spawn((
+        Enemy::new(&asset_server.load(ENEMY_IMG_PATH)),
+        Gunner {
+            tag: Tag::Enemy,
+            shot_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+        },
+        ChangeColor(Color::BLACK),
+        HealthBar {
+            tag: Tag::Enemy,
+            health: 200,
+            on_death: || todo!("Enemy died, you win!"),
+            on_hit: |health| {
+                if health % 5 == 0 {
+                    println!("Enemy health: {}", health);
+                }
+            },
+            hitbox_size: 100.,
+        },
+    ));
 
     commands.spawn(MaterialMesh2dBundle {
         mesh: Mesh2dHandle(meshes.add(Circle { radius: 10. })),
         material: materials.add(Color::rgba(1., 0., 0., 0.5)),
-        transform: Transform::from_xyz(0., 0., 0.),
+        transform: Transform::from_xyz(0., -200., 0.),
         ..default()
     });
 
-    let bullet_texture = asset_server.load("isaac.png");
-    let bullet = Bullet::new(&bullet_texture, [0., 1.], 20., 0.05);
-    commands.spawn_batch(std::iter::repeat((bullet, PlayerTag)).take(5));
+    let bullet_texture = asset_server.load(BULLET_IMG_PATH);
+    let color = ChangeColor(Color::RED);
 
-    let bullet = Bullet::new(&bullet_texture, [0., -1.], 2., 0.1);
-    commands.spawn_batch(std::iter::repeat((bullet, EnemyTag)).take(5));
-}
+    let bullet = Bullet::new(Tag::Player, &bullet_texture, DIR_UP, 20., 0.05);
+    commands.spawn_batch(std::iter::repeat((bullet, color.clone())).take(5));
 
-fn move_by(transform: &mut Transform, dir: (f32, f32), speed: f32) {
-    transform.translation.x += dir.0 * speed;
-    transform.translation.y += dir.1 * speed;
+    let bullet = Bullet::new(Tag::Enemy, &bullet_texture, DIR_DOWN, 2., 0.1);
+    commands.spawn_batch(std::iter::repeat((bullet, color)).take(5));
 }
 
 fn update_player_position(
-    mut player_pos: Query<(&mut Transform, &PlayerData)>,
+    mut player: Query<(&mut Transform, &PlayerData)>,
+    mut hitbox: Query<&mut Transform, (With<Mesh2dHandle>, Without<PlayerData>)>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
-    let (mut player_transform, player) = player_pos.single_mut();
+    let (mut ply_transform, ply_data) = player.single_mut();
 
-    let mut if_press_move = |key: KeyCode, dir: (f32, f32)| {
+    let mut if_press_move = |key: KeyCode, dir: Vec3| {
         if keys.pressed(key) {
-            move_by(&mut player_transform, dir, player.speed);
+            ply_transform.translation += dir * ply_data.speed;
+            hitbox.single_mut().translation = ply_transform.translation;
         }
     };
 
-    if_press_move(KeyCode::KeyW, (0., 1.));
-    if_press_move(KeyCode::KeyA, (-1., 0.));
-    if_press_move(KeyCode::KeyS, (0., -1.));
-    if_press_move(KeyCode::KeyD, (1., 0.));
+    if_press_move(KeyCode::KeyW, DIR_UP);
+    if_press_move(KeyCode::KeyA, DIR_LEFT);
+    if_press_move(KeyCode::KeyS, DIR_DOWN);
+    if_press_move(KeyCode::KeyD, DIR_RIGHT);
 }
 
-fn spawn_bullet<T: Shooter, K: Component, J: Component>(
-    shooter: &mut Mut<T>,
-    shooter_transform: &Transform,
-    delta: std::time::Duration,
-    bullets: &mut Query<
-        (&mut Transform, &ViewVisibility, &mut Visibility),
-        (With<BulletData>, With<K>, Without<J>),
-    >,
+fn update_bullets_spawn(
+    mut bullets: Query<(
+        &mut Transform,
+        &ViewVisibility,
+        &mut Visibility,
+        &BulletData,
+    )>,
+    mut gunners: Query<(&Transform, &mut Gunner), Without<BulletData>>,
+    time: Res<Time>,
 ) {
-    if shooter.can_shoot(delta) {
+    for (gunner_transform, mut gunner) in &mut gunners {
+        if !gunner.can_shoot(time.delta()) {
+            continue;
+        }
+
         bullets
             .iter_mut()
-            .find(|(_, is_visible, _)| !is_visible.get())
-            .map(|(mut transform, _, mut visibility)| {
-                transform.translation = shooter_transform.translation;
+            .find(|(_, is_visible, _, data)| !is_visible.get() && data.tag == gunner.tag)
+            .map(|(mut transform, _, mut visibility, _)| {
+                transform.translation = gunner_transform.translation;
                 *visibility = Visibility::Visible;
             });
     }
 }
 
-fn update_bullet_spawn(
-    mut query_bullets_player: Query<
-        (&mut Transform, &ViewVisibility, &mut Visibility),
-        (With<BulletData>, With<PlayerTag>, Without<EnemyTag>),
-    >,
-    mut query_bullets_enemy: Query<
-        (&mut Transform, &ViewVisibility, &mut Visibility),
-        (With<BulletData>, With<EnemyTag>, Without<PlayerTag>),
-    >,
-    mut query_player: Query<(&Transform, &mut PlayerData), Without<BulletData>>,
-    mut query_enemy: Query<(&Transform, &mut EnemyData), Without<BulletData>>,
-    time: Res<Time>,
-) {
-    let (player_transform, mut player) = query_player.single_mut();
-    let (enemy_transform, mut enemy) = query_enemy.single_mut();
-
-    spawn_bullet(
-        &mut player,
-        player_transform,
-        time.delta(),
-        &mut query_bullets_player,
-    );
-
-    spawn_bullet(
-        &mut enemy,
-        enemy_transform,
-        time.delta(),
-        &mut query_bullets_enemy,
-    );
+fn update_bullets_position(mut bullets: Query<(&BulletData, &mut Transform, &ViewVisibility)>) {
+    bullets
+        .iter_mut()
+        .filter(|(_, _, visibility)| visibility.get())
+        .for_each(|(bullet, mut transform, _)| {
+            transform.translation += bullet.direction * bullet.speed;
+        });
 }
 
-fn update_bullets_position(mut query: Query<(&BulletData, &mut Transform, &ViewVisibility)>) {
-    for (bullet, mut transform, visibility) in &mut query {
-        if visibility.get() {
-            transform.translation.x += bullet.speed * bullet.direction.x;
-            transform.translation.y += bullet.speed * bullet.direction.y;
-        }
-    }
-}
-
-fn update_enemy_position(
-    mut query_enemy: Query<(&mut EnemyData, &mut Transform)>,
-    time: Res<Time>,
-) {
-    for (mut enemy, mut transform) in &mut query_enemy {
+fn update_ai_position(mut enemies: Query<(&mut EnemyData, &mut Transform)>, time: Res<Time>) {
+    for (mut enemy, mut transform) in &mut enemies {
         if enemy.move_timer.tick(time.delta()).just_finished() {
-            enemy.velocities.rotate_left(1);
+            enemy.directions.rotate_left(1);
         }
-        let vel = enemy.velocities.first().unwrap_or(&0.);
-        transform.translation.x += vel * enemy.speed;
+        let direction = enemy.directions.first().unwrap_or(&0.);
+        transform.translation.x += direction * enemy.speed;
     }
 }
 
@@ -241,73 +258,33 @@ fn escape_game(mut exit: EventWriter<AppExit>, keys: Res<ButtonInput<KeyCode>>) 
     }
 }
 
-fn change_colors(
-    mut enemy_sprites: Query<&mut Sprite, (With<EnemyData>, Without<BulletData>)>,
-    mut bullets: Query<&mut Sprite, With<BulletData>>,
-) {
-    enemy_sprites
+fn change_colors(mut sprites: Query<(&mut Sprite, &ChangeColor)>) {
+    sprites
         .iter_mut()
-        .for_each(|mut sprite| sprite.color = Color::BLACK);
-
-    bullets
-        .iter_mut()
-        .for_each(|mut sprite| sprite.color = Color::RED);
+        .for_each(|(mut sprite, ChangeColor(color))| sprite.color = *color);
 }
 
-fn update_hits(
-    query_player: Query<&Transform, (With<PlayerData>, Without<EnemyData>)>,
-    mut query_enemy: Query<(&Transform, &mut EnemyData), Without<BulletData>>,
-    mut query_hitbox: Query<
-        &mut Transform,
-        (
-            With<Mesh2dHandle>,
-            Without<PlayerData>,
-            Without<EnemyData>,
-            Without<BulletData>,
-        ),
-    >,
-    query_enemy_bullets: Query<
-        (&Transform, &Visibility),
-        (With<BulletData>, (With<EnemyTag>, Without<PlayerTag>)),
-    >,
-    mut query_player_bullets: Query<
-        (&Transform, &mut Visibility),
-        (With<BulletData>, (With<PlayerTag>, Without<EnemyTag>)),
-    >,
+fn update_entity_hit(
+    mut entities: Query<(&Transform, &mut HealthBar)>,
+    mut bullets: Query<(&Transform, &BulletData, &mut Visibility)>,
 ) {
-    let player = query_player.single();
-    let (enemy, mut enemy_data) = query_enemy.single_mut();
-
-    // TODO: This should update on player move, use on changed system
-    query_hitbox.single_mut().translation = player.translation;
-
-    query_enemy_bullets
-        .iter()
-        .filter(|(_, visibility)| *visibility == Visibility::Visible)
-        .for_each(|(bullet, _)| {
-            if bullet.translation.distance(player.translation) < 25. {
-                // TODO: Implement
-                todo!("Player died, use size of bullet");
-            }
-        });
-
-    query_player_bullets
+    bullets
         .iter_mut()
-        .filter(|(_, visibility)| **visibility == Visibility::Visible)
-        .for_each(|(bullet, mut visibility)| {
-            if bullet.translation.distance(enemy.translation) < 100. {
-                enemy_data.health -= 1;
-                if enemy_data.health == 0 {
-                    // TODO: Implement
-                    todo!("Enemy died, You won!");
-                }
-
-                if enemy_data.health % 5 == 0 {
-                    println!("Enemy health: {}", enemy_data.health);
-                }
-
-                *visibility = Visibility::Hidden;
-            }
+        .filter(|(_, _, visibility)| **visibility == Visibility::Visible)
+        .for_each(|(bullet_pos, bullet, mut bullet_visibility)| {
+            entities
+                .iter_mut()
+                .filter(|(_, entity)| bullet.tag != entity.tag)
+                .for_each(|(transform, mut entity)| {
+                    if bullet_pos.translation.distance(transform.translation) < entity.hitbox_size {
+                        entity.health -= bullet.damage;
+                        (entity.on_hit)(entity.health);
+                        if entity.health == 0 {
+                            (entity.on_death)()
+                        }
+                        *bullet_visibility = Visibility::Hidden;
+                    }
+                });
         });
 }
 
@@ -320,11 +297,11 @@ fn main() {
         .add_systems(
             Update,
             (
-                update_bullet_spawn,
+                update_bullets_spawn,
                 update_bullets_position,
-                update_enemy_position,
+                update_ai_position,
             ),
         )
-        .add_systems(PostUpdate, update_hits)
+        .add_systems(PostUpdate, update_entity_hit)
         .run();
 }
