@@ -4,6 +4,16 @@ use bevy::{
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
 
+type PlayerBundle = GunnerBundle<Player>;
+type EnemyBundle = GunnerBundle<Enemy>;
+type BulletBundle = EntityBundle<Bullet>;
+
+#[derive(PartialEq, Clone)]
+enum Tag {
+    Player,
+    Enemy,
+}
+
 #[derive(Component)]
 struct Player {
     speed: f32,
@@ -33,6 +43,15 @@ struct Gunner {
 #[derive(Component, Clone)]
 struct ChangeColor(Color);
 
+#[derive(Component)]
+struct HealthBar {
+    tag: Tag,
+    health: u32,
+    on_death: fn(),
+    on_hit: fn(health: u32),
+    hitbox_size: f32,
+}
+
 #[derive(Bundle, Clone)]
 struct EntityBundle<T: Component> {
     data: T,
@@ -45,25 +64,6 @@ struct GunnerBundle<T: Component> {
     health_bar: HealthBar,
     entity: EntityBundle<T>,
 }
-
-#[derive(Component)]
-struct HealthBar {
-    tag: Tag,
-    health: u32,
-    on_death: fn(),
-    on_hit: fn(health: u32),
-    hitbox_size: f32,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-enum Tag {
-    Player,
-    Enemy,
-}
-
-type PlayerBundle = GunnerBundle<Player>;
-type EnemyBundle = GunnerBundle<Enemy>;
-type BulletBundle = EntityBundle<Bullet>;
 
 impl Gunner {
     fn new(tag: Tag, delay: f32) -> Self {
